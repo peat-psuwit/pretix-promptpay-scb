@@ -1,0 +1,3 @@
+recursive-include pretix_promptpay_scb/static *
+recursive-include pretix_promptpay_scb/templates *
+recursive-include pretix_promptpay_scb/locale *
