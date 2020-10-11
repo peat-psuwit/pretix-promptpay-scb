@@ -21,6 +21,9 @@ class PluginApp(PluginConfig):
         category = 'PAYMENT'
         compatibility = "pretix>=2.7.0"
 
+    def is_available(self, event):
+        return event.currency == 'THB'
+
     def ready(self):
         from . import signals  # NOQA
 
