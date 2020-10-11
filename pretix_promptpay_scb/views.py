@@ -1,8 +1,8 @@
 from django.contrib import messages
-from django.http.response import HttpResponse, Http404
+from django.http.response import JsonResponse, Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.functional import cached_property
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, View
 
 from pretix.base.models.orders import Order, OrderPayment
 from pretix.presale.views import EventViewMixin
@@ -43,5 +43,36 @@ class ShowQrView(EventViewMixin, OrderDetailMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['order'] = self.order
+        ctx['payment'] = self.payment
         ctx['qr_data_url'] = self.qr_data_url
         return ctx
+
+class PaymentStateView(OrderDetailMixin, View):
+    @cached_property
+    def payment(self):
+        return get_object_or_404(self.order.payments, pk=self.kwargs['payment'])
+
+    def dispatch(self, request, *args, **kwargs):
+        self.request = request
+        if not self.order:
+            raise Http404(_('Unknown order code or not authorized to access this order.'))
+
+        if self.payment.provider != 'promptpay_scb':
+            raise Http404(_('Wrong payment provider'))
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        state = self.payment.state
+        redirect_to = None
+
+        if self.payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED:
+            if self.order.status == Order.STATUS_PAID:
+                redirect_to = self.get_order_url() + '?paid=yes'
+            else:
+                redirect_to = self.get_order_url() + '?thanks=yes'
+
+        return JsonResponse({
+            'state': state,
+            'redirectTo': redirect_to,
+        })

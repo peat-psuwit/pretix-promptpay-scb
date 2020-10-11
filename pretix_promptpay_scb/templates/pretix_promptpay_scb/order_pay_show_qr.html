@@ -1,6 +1,7 @@
 {% extends "pretixpresale/event/base.html" %}
 {% load i18n %}
 {% load static %}
+{% load eventurl %}
 
 {% block custom_header %}
      <link rel="stylesheet" type="text/css" href="{% static 'pretix_promptpay_scb/style.css' %}" />
@@ -19,9 +20,11 @@
         โปรดชำระเงินด้วย QR code ที่ปรากฎข้างล่างนี้ เมื่อชำระเงินเสร็จแล้ว ระบบจะเปลี่ยนหน้าอัตโนมัติ
     </p>
 
-    <div class="promptpay_scb_container">
+    <div id="promptpay_scb_container" data-state-url="{% eventurl event "plugins:pretix_promptpay_scb:payment_state" secret=order.secret order=order.code payment=payment.pk %}">
             <img src="{% static "pretix_promptpay_scb/Thai_QR_Payment_Logo-wide-300px.png" %}"
                 class="promptpay_scb_logo" />
             <img src="{{ qr_data_url }}" class="promptpay_scb_qr" />
     </div>
+
+    <script src="{% static 'pretix_promptpay_scb/script.js' %}" async></script>
 {% endblock %}
