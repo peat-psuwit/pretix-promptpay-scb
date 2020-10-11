@@ -58,7 +58,12 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
             ]
         )
 
-    def checkout_confirm_render(self):
-        return '''
-ระบบจะแสดง QR Code ในหน้าถัดไป โปรดชำระเงินภายใน 10 นาที มิฉะนั้น ท่านจะต้องเริ่มการชำระเงินอีกครั้ง
-'''
+    def payment_form_render(self, request, total):
+        return _('''
+ชำระเงินผ่านระบบ PromptPay โดยทำการแสกน QR code ด้วยแอปพลิเคชันโมบายแบงก์กิ้งของธนาคารใดก็ได้เพื่อชำระเงิน
+''')
+
+    def checkout_confirm_render(self, request):
+        return _('''
+ระบบจะแสดง QR code ในหน้าถัดไป โปรดชำระเงินภายใน 10 นาที มิฉะนั้น ท่านจะต้องเริ่มการชำระเงินอีกครั้ง
+''')
