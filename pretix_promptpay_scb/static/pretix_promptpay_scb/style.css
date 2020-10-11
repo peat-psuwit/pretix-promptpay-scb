@@ -1,0 +1,17 @@
+.promptpay_scb_container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.promptpay_scb_logo {
+    display: block;
+    width: 300px;
+}
+
+.promptpay_scb_qr {
+    display: block;
+    width: 250px;
+    margin: 25px;
+}

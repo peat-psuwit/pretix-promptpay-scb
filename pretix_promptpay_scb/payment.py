@@ -3,14 +3,17 @@ import re
 import requests
 import uuid
 from collections import OrderedDict
+from decimal import Decimal
 from typing import Any, Dict
 
 from django import forms
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from pretix.base.payment import BasePaymentProvider
+from pretix.base.models.orders import OrderPayment
+from pretix.base.payment import BasePaymentProvider, PaymentException
 from pretix.base.cache import ObjectRelatedCache
+from pretix.multidomain.urlreverse import eventreverse
 
 class ScbPartnerApi():
     """
@@ -78,6 +81,17 @@ class ScbPartnerApi():
             self.cache.set('scb_access_token', self.access_token, timeout=self.access_token['expiresIn'])
 
         return '%s %s' % (self.access_token['tokenType'], self.access_token['accessToken'])
+
+    def qrcode_create_biller(self, amount: Decimal, ppId: str, ref1: str, ref2: str, ref3: str):
+        return self.post(url=self.v1_url + '/payment/qrcode/create', json={
+            'qrType': 'PP',
+            'ppType': 'BILLERID',
+            'ppId': ppId,
+            'ref1': ref1,
+            'ref2': ref2,
+            'ref3': ref3,
+            'amount': str(amount),
+        })
 
 
 class PromptPayScbPaymentProvider(BasePaymentProvider):
@@ -155,3 +169,52 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
         return _('''
 ระบบจะแสดง QR code ในหน้าถัดไป โปรดชำระเงินภายใน 10 นาที มิฉะนั้น ท่านจะต้องเริ่มการชำระเงินอีกครั้ง
 ''')
+
+    def execute_payment(self, request, payment):
+        api = ScbPartnerApi(
+            base_url=self.settings.api_url,
+            app_key=self.settings.application_key,
+            app_secret=self.settings.application_secret,
+            cache=self.event.cache,
+        )
+
+        # All references are [A-Z0-9]{1,20}, thus some transformation is
+        # needed before putting things into slug.
+        # Remove all non-alphanum from slug and uppercase it.
+        slugRef = re.sub(r'[^A-Z0-9]*', '', self.event.slug.upper())
+        ref1 = self.settings.ref1_prefix + slugRef
+
+        # Would love to use payment.full_id, but that contains '-'.
+        ref2 = '%sP%d' % (payment.order.code, payment.local_id)
+
+        # Have nothing to append to ref3 yet.
+        ref3 = self.settings.ref3_prefix
+
+        try:
+            qr_response = api.qrcode_create_biller(
+                amount=payment.amount,
+                ppId=self.settings.pp_id,
+                ref1=ref1,
+                ref2=ref2,
+                ref3=ref3,
+            )
+        except ScbPartnerApi.BussinessError as e:
+            print(e.code, e.description)
+            raise PaymentException(_('เกิดข้อผิดพลาดในการสร้าง QR code')) from e
+
+        # Keep only the QR image, for displaying in our custom view.
+        qr_image = qr_response['qrImage']
+        payment.info_data = { 'qr_image': qr_image }
+        payment.state = OrderPayment.PAYMENT_STATE_PENDING
+        payment.save()
+
+        return eventreverse(
+            obj=self.event,
+            name='plugins:pretix_promptpay_scb:show_qr',
+            kwargs={
+                'order': payment.order.code,
+                'payment': payment.pk,
+                'secret': payment.order.secret
+            }
+        )
+        

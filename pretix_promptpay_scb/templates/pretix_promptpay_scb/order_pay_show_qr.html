@@ -1,0 +1,27 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block custom_header %}
+     <link rel="stylesheet" type="text/css" href="{% static 'pretix_promptpay_scb/style.css' %}" />
+
+    {{ block.super }}
+{% endblock %}
+
+{% block content %}
+    <h2>
+        {% blocktrans trimmed with code=order.code %}
+            การชำระเงินด้วย PromptPay QR สำหรับคำสั่งซื้อ: {{ code }}
+        {% endblocktrans %}
+    </h2>
+
+    <p>
+        โปรดชำระเงินด้วย QR code ที่ปรากฎข้างล่างนี้ เมื่อชำระเงินเสร็จแล้ว ระบบจะเปลี่ยนหน้าอัตโนมัติ
+    </p>
+
+    <div class="promptpay_scb_container">
+            <img src="{% static "pretix_promptpay_scb/Thai_QR_Payment_Logo-wide-300px.png" %}"
+                class="promptpay_scb_logo" />
+            <img src="{{ qr_data_url }}" class="promptpay_scb_qr" />
+    </div>
+{% endblock %}
