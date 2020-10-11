@@ -58,6 +58,13 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
             ]
         )
 
+    def is_allowed(self, request, total):
+        return super().is_allowed(request, total) and self.event.currency == 'THB'
+
+    def payment_is_valid_session(self, request):
+        # We do not store any session info
+        return True
+
     def payment_form_render(self, request, total):
         return _('''
 ชำระเงินผ่านระบบ PromptPay โดยทำการแสกน QR code ด้วยแอปพลิเคชันโมบายแบงก์กิ้งของธนาคารใดก็ได้เพื่อชำระเงิน
