@@ -1,4 +1,5 @@
 import datetime
+import re
 import requests
 import uuid
 from collections import OrderedDict
@@ -89,10 +90,10 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
         return OrderedDict(
             list(super().settings_form_fields.items()) + [
                 # I'm not sure if the production endpoint is fixed.
-                ('api_url', forms.CharField(
-                    widget=forms.TextInput,
+                ('api_url', forms.URLField(
                     label=_('SCB partner API endpoint'),
-                    help_text=_('Starts with https://. Do not include /v1/ in the URL.'),
+                    help_text=_('Starts with https://. Do not include /v1 in the URL. '
+                                'Trailing slash will be removed.'),
                     required=True,
                     initial='https://api-sandbox.partners.scb/partners/sandbox',
                 )),
@@ -131,6 +132,12 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
                 )),
             ]
         )
+
+    def settings_form_clean(self, cleaned_data):
+        # Remove trailing slash from api_url
+        api_url = re.sub(r'/$', '', cleaned_data.get('payment_promptpay_scb_api_url'))
+        cleaned_data['payment_promptpay_scb_api_url'] = api_url
+        return cleaned_data
 
     def is_allowed(self, request, total):
         return super().is_allowed(request, total) and self.event.currency == 'THB'
