@@ -1,9 +1,15 @@
+import json
+import re
+
 from django.contrib import messages
-from django.http.response import JsonResponse, Http404
+from django.http.response import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.functional import cached_property
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView, View
 
+from pretix.base.models.items import Quota
 from pretix.base.models.orders import Order, OrderPayment
 from pretix.presale.views import EventViewMixin
 from pretix.presale.views.order import OrderDetailMixin
@@ -76,3 +82,62 @@ class PaymentStateView(OrderDetailMixin, View):
             'state': state,
             'redirectTo': redirect_to,
         })
+
+@csrf_exempt
+@require_POST
+def callback_view(request, *args, **kwargs):
+    event = request.event
+    payment_provider = event.get_payment_providers()['promptpay_scb']
+    if not payment_provider.is_enabled:
+        raise Http404()
+
+    # First, make sure the callback_secret matches.
+    callback_secret = kwargs['callback_secret']
+    if callback_secret != payment_provider.settings.callback_secret:
+        raise Http404() # Intentionally be opaque, because it's a part of the URL.
+
+    try:
+        confirmation = json.load(request) # Note, HttpRequest implements read().
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest()
+
+    try:
+        ref1 = confirmation['billPaymentRef1']
+        ref2 = confirmation['billPaymentRef2']
+    except KeyError:
+        return HttpResponseBadRequest()
+
+    # Verify the paid event from ref1
+    if ref1 != payment_provider.get_event_ref1():
+        # FIXME: is this a good response?
+        return HttpResponseBadRequest()
+
+    # Parse which payment it is from ref2
+    parsed_ref2 = re.match(r'^(?P<order>[^/]+)P(?P<pay_local_id>[0-9]+)$', ref2)
+    if parsed_ref2 is None:
+        return HttpResponseBadRequest()
+
+    order_code = parsed_ref2.group('order')
+    pay_local_id = int(parsed_ref2.group('pay_local_id'))
+
+    payment = get_object_or_404(OrderPayment,
+                order__code=order_code, local_id=pay_local_id)
+
+    try:
+        payment.confirm()
+    except Quota.QuotaExceededException:
+        # Do not return error. The payment is marked paid nonetheless.
+        # We still have to tell SCB that yes, we acknowledged that.
+        pass
+
+    # Replace the payment info with confirmation, used to display info
+    # in admin view (not implemented yet).
+    payment.info_data = { 'confirmation': confirmation }
+    payment.save()
+
+    # Respond in a specific format defined by SCB
+    return JsonResponse({
+        'resCode': '00', # Yes, a string
+        'resDesc': 'success',
+        'transactionId': confirmation['transactionId'],
+    })

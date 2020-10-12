@@ -1,6 +1,7 @@
 import datetime
 import re
 import requests
+import string
 import uuid
 from collections import OrderedDict
 from decimal import Decimal
@@ -8,12 +9,13 @@ from typing import Any, Dict
 
 from django import forms
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 from django.utils.translation import gettext_lazy as _
 
 from pretix.base.models.orders import OrderPayment
 from pretix.base.payment import BasePaymentProvider, PaymentException
 from pretix.base.cache import ObjectRelatedCache
-from pretix.multidomain.urlreverse import eventreverse
+from pretix.multidomain.urlreverse import eventreverse, build_absolute_uri
 
 class ScbPartnerApi():
     """
@@ -142,7 +144,7 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
                     label=_('Reference 3 prefix'),
                     help_text=_('Have to match the reference 3 prefix configured as plugin\'s callback.'),
                     required=True,
-                    regex='[A-Z0-9]*',
+                    regex='[A-Z0-9]{3}',
                 )),
             ]
         )
@@ -151,7 +153,29 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
         # Remove trailing slash from api_url
         api_url = re.sub(r'/$', '', cleaned_data.get('payment_promptpay_scb_api_url'))
         cleaned_data['payment_promptpay_scb_api_url'] = api_url
+
         return cleaned_data
+
+    def get_callback_secret(self):
+        secret = self.settings.callback_secret
+        if secret is None:
+            secret = get_random_string(length=32, allowed_chars=string.ascii_letters + string.digits)
+            self.settings.callback_secret = secret
+            # FIXME: better way to persist this settings?
+            self.event.save()
+
+        return secret
+
+    def settings_content_render(self, request):
+        callback_content = "<div class='alert alert-info'>%s <b>%s</b><br />" \
+                            "<code>%s</code></div>" % (
+            _("Config this URL as the payment confirmation endpoint at SCB's portal."),
+            _("Anyone knowing this endpoint can confirm their payment, so keep it secret."),
+            build_absolute_uri(self.event, 'plugins:pretix_promptpay_scb:callback',
+                                kwargs={ 'callback_secret': self.get_callback_secret() })
+        )
+
+        return callback_content
 
     def is_allowed(self, request, total):
         return super().is_allowed(request, total) and self.event.currency == 'THB'
@@ -170,6 +194,17 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
 ระบบจะแสดง QR code ในหน้าถัดไป โปรดชำระเงินภายใน 10 นาที มิฉะนั้น ท่านจะต้องเริ่มการชำระเงินอีกครั้ง
 ''')
 
+    def get_event_ref1(self):
+        """
+            Merge choosen prefix and event slug. Make sure it doesn't exceed 20 chars.
+            Also called from the payment callback view.
+        """
+
+        # Remove all non-alphanum from slug and uppercase it.
+        slugRef = re.sub(r'[^A-Z0-9]*', '', self.event.slug.upper())
+        # Shorten to the first 20 chars.
+        return (self.settings.ref1_prefix + slugRef)[:20]
+
     def execute_payment(self, request, payment):
         api = ScbPartnerApi(
             base_url=self.settings.api_url,
@@ -180,9 +215,8 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
 
         # All references are [A-Z0-9]{1,20}, thus some transformation is
         # needed before putting things into slug.
-        # Remove all non-alphanum from slug and uppercase it.
-        slugRef = re.sub(r'[^A-Z0-9]*', '', self.event.slug.upper())
-        ref1 = self.settings.ref1_prefix + slugRef
+        
+        ref1 = self.get_event_ref1()
 
         # Would love to use payment.full_id, but that contains '-'.
         ref2 = '%sP%d' % (payment.order.code, payment.local_id)
