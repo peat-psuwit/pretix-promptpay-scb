@@ -1,4 +1,5 @@
 import datetime
+import logging
 import re
 import requests
 import string
@@ -16,6 +17,8 @@ from pretix.base.models.orders import OrderPayment
 from pretix.base.payment import BasePaymentProvider, PaymentException
 from pretix.base.cache import ObjectRelatedCache
 from pretix.multidomain.urlreverse import eventreverse, build_absolute_uri
+
+logger = logging.getLogger('pretix_promptpay_scb')
 
 class ScbPartnerApi():
     """
@@ -223,7 +226,7 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
                 ref3=ref3,
             )
         except ScbPartnerApi.BussinessError as e:
-            print(e.code, e.description)
+            logger.exception('Error on creating QR code: ' + str(e))
             raise PaymentException(_('เกิดข้อผิดพลาดในการสร้าง QR code')) from e
 
         # Keep only the QR image, for displaying in our custom view.
