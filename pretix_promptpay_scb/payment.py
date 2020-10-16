@@ -129,16 +129,6 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
                     label=_('Biller ID'),
                     required=True,
                 )),
-                ('ref1_prefix', forms.RegexField(
-                    widget=forms.TextInput,
-                    label=_('Reference 1 prefix'),
-                    help_text=_('Will be prepended in front of the event slug. '
-                                'English capital letter and number only. '
-                                'Note that the reference 2 will always be Pretix\'s payment ID.'),
-                    required=False,
-                    regex='[A-Z0-9]*',
-                    initial='PRETIX',
-                )),
                 ('ref3_prefix', forms.RegexField(
                     widget=forms.TextInput,
                     label=_('Reference 3 prefix'),
@@ -203,7 +193,7 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
         # Remove all non-alphanum from slug and uppercase it.
         slugRef = re.sub(r'[^A-Z0-9]*', '', self.event.slug.upper())
         # Shorten to the first 20 chars.
-        return (self.settings.ref1_prefix + slugRef)[:20]
+        return slugRef[:20]
 
     def execute_payment(self, request, payment):
         api = ScbPartnerApi(
