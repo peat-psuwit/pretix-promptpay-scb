@@ -3,6 +3,7 @@ import json
 from decimal import Decimal
 
 import pytest
+from django.contrib.messages import get_messages
 from django.utils.timezone import now
 from django_scopes import scope
 
@@ -84,3 +85,16 @@ def test_paid_payment_not_covered(env):
     response = client.get(url)
 
     assert response['Location'].endswith('?thanks=yes')
+
+@pytest.mark.django_db
+def test_failed_payment(env):
+    client, orga, event, order, payment = env
+    with scope(organizer=orga):
+        payment.fail()
+
+    url = get_show_qr_url(event, payment)
+    response = client.get(url)
+
+    assert response['Location'] == '/%s/%s/order/%s/%s/' % (
+        orga.slug, event.slug, order.code, order.secret
+    )

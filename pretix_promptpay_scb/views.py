@@ -35,6 +35,9 @@ class ShowQrView(EventViewMixin, OrderDetailMixin, TemplateView):
                 return redirect(self.get_order_url() + '?paid=yes')
             else:
                 return redirect(self.get_order_url() + '?thanks=yes')
+        elif self.payment.state not in (OrderPayment.PAYMENT_STATE_CREATED,
+                                        OrderPayment.PAYMENT_STATE_PENDING):
+            return redirect(self.get_order_url())
 
         qr_image = self.payment.info_data['qr_image']
         if qr_image is None:
