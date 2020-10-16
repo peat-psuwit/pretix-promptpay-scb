@@ -249,5 +249,5 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
     def test_mode_message(self):
         if self.settings.api_url.endswith('/sandbox'):
             return _('The SCB sandbox is being used. You need to use SCB Simulator app to test. '
-                     'Download the app at <a href="{link}">{link}</a>') \
+                     'Download the app at {link}') \
                     .format(link='https://developer.scb/#/documents/documentation/basics/developer-sandbox.html')
