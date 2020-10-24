@@ -15,6 +15,8 @@ from pretix.base.models.orders import Order, OrderPayment
 from pretix.presale.views import EventViewMixin
 from pretix.presale.views.order import OrderDetailMixin
 
+from .models import SCBTransaction
+
 class ShowQrView(EventViewMixin, OrderDetailMixin, TemplateView):
     template_name = 'pretix_promptpay_scb/order_pay_show_qr.html'
 
@@ -87,6 +89,14 @@ class PaymentStateView(OrderDetailMixin, View):
             'redirectTo': redirect_to,
         })
 
+class SCBSuccessResponse(JsonResponse):
+    def __init__(self, transaction_id: str):
+        super().__init__({
+            'resCode': '00', # Yes, a string
+            'resDesc': 'success',
+            'transactionId': transaction_id,
+        })
+
 @csrf_exempt
 @require_POST
 def callback_view(request, *args, **kwargs):
@@ -106,10 +116,22 @@ def callback_view(request, *args, **kwargs):
         return HttpResponseBadRequest()
 
     try:
+        transaction_id = confirmation['transactionId']
         ref1 = confirmation['billPaymentRef1']
         ref2 = confirmation['billPaymentRef2']
     except KeyError:
         return HttpResponseBadRequest()
+
+    # Provide transaction idempotency
+    transaction, trans_created = SCBTransaction.objects.get_or_create(
+        transaction_id = transaction_id)
+    if not trans_created:
+        if transaction.state == SCBTransaction.STATE_MATCHED:
+            return SCBSuccessResponse(transaction_id)
+        else:
+            # If in STATE_NOMATCH, we can't do anything about it.
+            # Otherwise (STATE_CREATED), another request is handling it.
+            return HttpResponseBadRequest()
 
     # Verify the paid event from ref1
     if ref1 != payment_provider.get_event_ref1():
@@ -140,8 +162,4 @@ def callback_view(request, *args, **kwargs):
     payment.save()
 
     # Respond in a specific format defined by SCB
-    return JsonResponse({
-        'resCode': '00', # Yes, a string
-        'resDesc': 'success',
-        'transactionId': confirmation['transactionId'],
-    })
+    return SCBSuccessResponse(transaction_id)
