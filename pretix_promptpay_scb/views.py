@@ -1,7 +1,9 @@
 import json
-import re
+from decimal import Decimal
+from typing import Union
 
 from django.contrib import messages
+from django.db import transaction, IntegrityError
 from django.http.response import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.functional import cached_property
@@ -14,6 +16,7 @@ from pretix.base.models.items import Quota
 from pretix.base.models.orders import Order, OrderPayment
 from pretix.presale.views import EventViewMixin
 from pretix.presale.views.order import OrderDetailMixin
+from pretix.base.services.orders import change_payment_provider
 
 from .models import SCBTransaction
 
@@ -97,6 +100,50 @@ class SCBSuccessResponse(JsonResponse):
             'transactionId': transaction_id,
         })
 
+@transaction.atomic
+def bond_a_payment_to_the_transaction(
+    trans: SCBTransaction,
+    order: Order,
+    amount: Decimal,
+) -> OrderPayment:
+    if trans.payment is not None:
+        # Not sure if this is even possible, but to prevent forever loop and
+        # to prevent ever changing the bounded payment.
+        return trans.payment
+
+    try:
+        payment, created = order.payments.get_or_create(
+            provider='promptpay_scb',
+            amount=amount,
+            state__in=(OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING),
+            scb_transaction=None, # related field added in SCBTransaction
+            defaults={
+                'state': OrderPayment.PAYMENT_STATE_CREATED,
+            },
+        )
+    except SCBTransaction.MultipleObjectsReturned:
+        created = False
+        payment = order.payments.filter(
+            provider='promptpay_scb',
+            amount=amount,
+            state__in=(OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING),
+            scb_transaction=None, # related field added in SCBTransaction
+        ).last()
+
+    trans.state = SCBTransaction.STATE_MATCHED
+    trans.payment = payment
+    trans.save()
+
+    if created and order.status == Order.STATUS_PENDING:
+        # We're perform a payment method switching on-demand here
+        old_fee, new_fee, fee, payment = change_payment_provider(order, payment.payment_provider, payment.amount,
+                                                                 new_payment=payment, create_log=False)  # noqa
+        if fee:
+            payment.fee = fee
+            payment.save(update_fields=['fee'])
+
+    return payment
+
 @csrf_exempt
 @require_POST
 def callback_view(request, *args, **kwargs):
@@ -119,14 +166,16 @@ def callback_view(request, *args, **kwargs):
         transaction_id = confirmation['transactionId']
         ref1 = confirmation['billPaymentRef1']
         ref2 = confirmation['billPaymentRef2']
+        amount = Decimal(confirmation['amount'])
     except KeyError:
         return HttpResponseBadRequest()
 
     # Provide transaction idempotency
-    transaction, trans_created = SCBTransaction.objects.get_or_create(
+    trans: SCBTransaction
+    trans, trans_created = SCBTransaction.objects.get_or_create(
         transaction_id = transaction_id)
     if not trans_created:
-        if transaction.state == SCBTransaction.STATE_MATCHED:
+        if trans.state == SCBTransaction.STATE_MATCHED:
             return SCBSuccessResponse(transaction_id)
         else:
             # If in STATE_NOMATCH, we can't do anything about it.
@@ -135,19 +184,29 @@ def callback_view(request, *args, **kwargs):
 
     # Verify the paid event from ref1
     if ref1 != payment_provider.get_event_ref1():
+        trans.state = SCBTransaction.STATE_NOMATCH
+        trans.save()
         # FIXME: is this a good response?
         return HttpResponseBadRequest()
 
-    # Parse which payment it is from ref2
-    parsed_ref2 = re.match(r'^(?P<order>[^/]+)P(?P<pay_local_id>[0-9]+)$', ref2)
-    if parsed_ref2 is None:
+    # Ensure that the order exists
+    order: Union[Order, None] = event.orders.get(code=ref2)
+    if order is None:
+        trans.state = SCBTransaction.STATE_NOMATCH
+        trans.save()
+        # FIXME: is this a good response?
         return HttpResponseBadRequest()
 
-    order_code = parsed_ref2.group('order')
-    pay_local_id = int(parsed_ref2.group('pay_local_id'))
-
-    payment = get_object_or_404(OrderPayment,
-                order__code=order_code, local_id=pay_local_id)
+    # Get or create the payment, associating with the transaction.
+    while True:
+        try:
+            payment = bond_a_payment_to_the_transaction(
+                trans=trans, order=order, amount=amount)
+            # No exception, OrderPayment is bond with SCBTransaction successfuly.
+            break
+        except IntegrityError:
+            trans.refresh_from_db()
+            continue # Try again
 
     try:
         payment.confirm()

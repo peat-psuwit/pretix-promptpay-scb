@@ -210,10 +210,7 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
         # needed before putting things into slug.
         
         ref1 = self.get_event_ref1()
-
-        # Would love to use payment.full_id, but that contains '-'.
-        ref2 = '%sP%d' % (payment.order.code, payment.local_id)
-
+        ref2 = payment.order.code
         # Have nothing to append to ref3 yet.
         ref3 = self.settings.ref3_prefix
 
