@@ -42,7 +42,7 @@ class ShowQrView(EventViewMixin, OrderDetailMixin, TemplateView):
         qr_image = self.payment.info_data['qr_image']
         if qr_image is None:
             messages.error(request, _('เกิดข้อผิดพลาดในการสร้าง QR code'))
-            payment.fail()
+            self.payment.fail()
             return redirect(self.get_order_url())
 
         # SCB image is a GIF file.
