@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.db import transaction, IntegrityError
 from django.http.response import JsonResponse, Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
+from django.utils.dateparse import parse_datetime
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.csrf import csrf_exempt
@@ -167,6 +168,7 @@ def callback_view(request, *args, **kwargs):
         ref1 = confirmation['billPaymentRef1']
         ref2 = confirmation['billPaymentRef2']
         amount = Decimal(confirmation['amount'])
+        transaction_date = confirmation['transactionDateandTime']
     except KeyError:
         return HttpResponseBadRequest()
 
@@ -209,7 +211,7 @@ def callback_view(request, *args, **kwargs):
             continue # Try again
 
     try:
-        payment.confirm()
+        payment.confirm(payment_date=parse_datetime(transaction_date))
     except Quota.QuotaExceededException:
         # Do not return error. The payment is marked paid nonetheless.
         # We still have to tell SCB that yes, we acknowledged that.
