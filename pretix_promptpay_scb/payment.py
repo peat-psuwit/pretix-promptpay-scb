@@ -188,7 +188,7 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
 
     def get_event_ref1(self):
         """
-            Merge choosen prefix and event slug. Make sure it doesn't exceed 20 chars.
+            Make the event's slug safe to be used as a ref1.
             Also called from the payment callback view.
         """
 
