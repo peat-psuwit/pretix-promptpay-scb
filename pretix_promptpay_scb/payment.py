@@ -183,9 +183,8 @@ class PromptPayScbPaymentProvider(BasePaymentProvider):
 ''')
 
     def checkout_confirm_render(self, request):
-        return _('''
-ระบบจะแสดง QR code ในหน้าถัดไป โปรดชำระเงินภายใน 10 นาที มิฉะนั้น ท่านจะต้องเริ่มการชำระเงินอีกครั้ง
-''')
+        return _('ระบบจะแสดง QR code ในหน้าถัดไป โปรดใช้แอปพลิเคชันโมบายแบงก์กิ้งของธนาคารใดก็ได้'
+                 'แสกน QR code เพื่อชำระเงิน เมื่อชำระเงินเสร็จแล้ว ระบบจะเปลี่ยนหน้าอัตโนมัติ')
 
     def get_event_ref1(self):
         """
